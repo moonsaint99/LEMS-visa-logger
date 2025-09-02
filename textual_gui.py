@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import asyncio
+import concurrent.futures
 from datetime import datetime, timedelta
 
 import init_connection
@@ -133,6 +134,7 @@ def run_monitor(
             self.chk_336: Checkbox | None = None
             self.btn_start: Button | None = None
             self._started = False
+            self._executor: concurrent.futures.ThreadPoolExecutor | None = None
 
         def compose(self):
             yield Header(show_clock=True)
@@ -192,7 +194,12 @@ def run_monitor(
             if b36:
                 sources.add("LS336")
 
-            self.state = MonitorState(bbb, bsp, b36, sources)
+            try:
+                self.state = MonitorState(bbb, bsp, b36, sources)
+            except Exception as e:
+                print(f"Failed to open instruments: {e}")
+                self.state = None
+                return
 
             # Seed metric rows based on selection
             metrics: list[tuple[str, str]] = []
@@ -220,9 +227,11 @@ def run_monitor(
             except Exception as e:
                 print(f"Failed to open SQLite DB: {e}")
 
-            # Start periodic polling (monitor) and logging
-            self.set_interval(self.monitor_interval, self._tick, pause=not self.polling)
-            self.set_interval(self.log_interval, self._log_tick)
+            # Start a thread pool for background tasks
+            self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="tui")
+            # Start periodic polling (monitor) and logging using sync schedulers
+            self.set_interval(self.monitor_interval, self._tick_sched, pause=not self.polling)
+            self.set_interval(self.log_interval, self._log_tick_sched)
             self._started = True
 
             # Hide selection controls
@@ -251,24 +260,16 @@ def run_monitor(
             if not self._started:
                 self._start()
             else:
-                self._tick()
+                self._tick_sched()
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             if event.button.id == "start":
                 self._start()
 
-        async def _tick(self) -> None:
-            if not self.state:
-                return
-            try:
-                result = await asyncio.to_thread(self.state.poll_latest)
-            except Exception:
-                return
-
+        def _apply_poll_result(self, result: dict[tuple[str, str], tuple[str, float | None]]) -> None:
             table = self.table
             if not table:
                 return
-
             for key, (ts, val) in result.items():
                 row = self.row_index.get(key)
                 if row is None:
@@ -279,27 +280,43 @@ def run_monitor(
                 )
                 table.update_cell(row, 2, value_str)
                 table.update_cell(row, 3, ts)
-
             self._last_poll = datetime.utcnow()
 
-        async def _log_tick(self) -> None:
-            ok = False
-            if self._db is None or not self.state:
-                ok = False
-            else:
-                try:
-                    def _log_once():
-                        with self._db:
-                            for row in _poll_once(self.state.inst, sources=self.state.sources):
-                                _insert_sample(self._db, *row)
-                        return True
+        def _tick_sched(self) -> None:
+            if not self.state or not self._executor:
+                return
+            fut = self._executor.submit(self.state.poll_latest)
 
-                    ok = await asyncio.to_thread(_log_once)
+            def _done(f: concurrent.futures.Future):
+                try:
+                    res = f.result()
+                except Exception:
+                    return
+                self.call_from_thread(self._apply_poll_result, res)
+
+            fut.add_done_callback(_done)
+
+        def _log_tick_sched(self) -> None:
+            if self._db is None or not self.state or not self._executor:
+                return
+            def _log_once():
+                try:
+                    with self._db:
+                        for row in _poll_once(self.state.inst, sources=self.state.sources):
+                            _insert_sample(self._db, *row)
+                    return True
                 except Exception as e:
                     print(f"SQLite log error: {e}")
+                    return False
+            fut = self._executor.submit(_log_once)
+            def _done(f: concurrent.futures.Future):
+                try:
+                    ok = f.result()
+                except Exception:
                     ok = False
-            if ok:
-                self._last_log = datetime.utcnow()
+                if ok:
+                    self.call_from_thread(lambda: setattr(self, "_last_log", datetime.utcnow()))
+            fut.add_done_callback(_done)
 
         def on_unmount(self) -> None:
             # Restore stdout/stderr
@@ -312,6 +329,11 @@ def run_monitor(
             try:
                 if self._db is not None:
                     self._db.close()
+            except Exception:
+                pass
+            try:
+                if self._executor is not None:
+                    self._executor.shutdown(wait=False, cancel_futures=True)
             except Exception:
                 pass
 

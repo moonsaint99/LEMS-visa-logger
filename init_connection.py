@@ -4,19 +4,28 @@ class logger:
     def __init__(self, open_330bb: bool = True, open_330sp: bool = True, open_336: bool = True):
         self.rm = pyvisa.ResourceManager()
         if open_330bb:
-            self.LS330BB = self.rm.open_resource("GPIB2::13::INSTR")
+            try:
+                self.LS330BB = self.rm.open_resource("GPIB2::13::INSTR")
+            except Exception as e:
+                print(f"Error opening LS330BB: {e}")
         if open_330sp:
-            self.LS330SP = self.rm.open_resource("GPIB2::12::INSTR")
+            try:
+                self.LS330SP = self.rm.open_resource("GPIB2::12::INSTR")
+            except Exception as e:
+                print(f"Error opening LS330SP: {e}")
 
         # Now we configure the 336 specially, because it doesn't work out of the box
         if open_336:
-            self.LS336 = self.rm.open_resource("ASRL4::INSTR")
-            self.LS336.baud_rate = 57600
-            self.LS336.data_bits = 7
-            self.LS336.stop_bits = pyvisa.constants.StopBits.one
-            self.LS336.parity = pyvisa.constants.Parity.odd
-            self.LS336.flow_control = pyvisa.constants.ControlFlow.none
-            self.LS336.read_termination = '\r\n'
+            try:
+                self.LS336 = self.rm.open_resource("ASRL4::INSTR")
+                self.LS336.baud_rate = 57600
+                self.LS336.data_bits = 7
+                self.LS336.stop_bits = pyvisa.constants.StopBits.one
+                self.LS336.parity = pyvisa.constants.Parity.odd
+                self.LS336.flow_control = pyvisa.constants.ControlFlow.none
+                self.LS336.read_termination = '\r\n'
+            except Exception as e:
+                print(f"Error opening LS336: {e}")
     
     # Graceful shutdown method:
     def close(self):
