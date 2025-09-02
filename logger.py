@@ -48,36 +48,36 @@ def _insert_sample(db: sqlite3.Connection, ts: str, source: str, channel: str, v
     )
 
 
-def _poll_once(inst: init_connection.logger):
+def _poll_once(inst: init_connection.logger, sources: set[str] | None = None):
     ts = datetime.utcnow().isoformat()
 
-    # Lake Shore 330 BB
-    bb_sp, bb_temp = inst.poll_330BB()
-    yield (ts, "LS330BB", "setpoint[K]", bb_sp, None)
-    yield (ts, "LS330BB", "temperature[K]", bb_temp, None)
+    if sources is None or "LS330BB" in sources:
+        bb_sp, bb_temp = inst.poll_330BB()
+        yield (ts, "LS330BB", "setpoint[K]", bb_sp, None)
+        yield (ts, "LS330BB", "temperature[K]", bb_temp, None)
 
-    # Lake Shore 330 SP
-    sp_sp, sp_temp = inst.poll_330SP()
-    yield (ts, "LS330SP", "setpoint[K]", sp_sp, None)
-    yield (ts, "LS330SP", "temperature[K]", sp_temp, None)
+    if sources is None or "LS330SP" in sources:
+        sp_sp, sp_temp = inst.poll_330SP()
+        yield (ts, "LS330SP", "setpoint[K]", sp_sp, None)
+        yield (ts, "LS330SP", "temperature[K]", sp_temp, None)
 
-    # Lake Shore 336 (channels A and B)
-    try:
-        res_a, res_b = inst.poll_336()
-    except Exception as e:
-        print(f"Error polling LS336: {e}")
-        res_a = res_b = None
+    if sources is None or "LS336" in sources:
+        try:
+            res_a, res_b = inst.poll_336()
+        except Exception as e:
+            print(f"Error polling LS336: {e}")
+            res_a = res_b = None
 
-    a_sp = a_temp = b_sp = b_temp = None
-    if res_a:
-        a_sp, a_temp = res_a
-    if res_b:
-        b_sp, b_temp = res_b
+        a_sp = a_temp = b_sp = b_temp = None
+        if res_a:
+            a_sp, a_temp = res_a
+        if res_b:
+            b_sp, b_temp = res_b
 
-    yield (ts, "LS336", "A.setpoint[K]", a_sp, None)
-    yield (ts, "LS336", "A.temperature[K]", a_temp, None)
-    yield (ts, "LS336", "B.setpoint[K]", b_sp, None)
-    yield (ts, "LS336", "B.temperature[K]", b_temp, None)
+        yield (ts, "LS336", "A.setpoint[K]", a_sp, None)
+        yield (ts, "LS336", "A.temperature[K]", a_temp, None)
+        yield (ts, "LS336", "B.setpoint[K]", b_sp, None)
+        yield (ts, "LS336", "B.temperature[K]", b_temp, None)
 
 
 def poll_and_log_sqlite(interval_sec: int = 15, db_path: str = "C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3"):
@@ -108,10 +108,20 @@ def poll_and_log_sqlite(interval_sec: int = 15, db_path: str = "C:\\Users\\qris\
 
 
 if __name__ == "__main__":
-    poll_and_log_sqlite()
+    # Launch the Textual monitoring UI by default when running this file.
+    from textual_gui import run_monitor
+    run_monitor(monitor_interval_sec=10.0, log_interval_sec=60.0)
 
 
 # Textual UI wrapper delegated to textual_gui.py for separation of concerns.
-def run_monitor(interval_sec: float = 2.0):
+def run_monitor(
+    monitor_interval_sec: float = 10.0,
+    log_interval_sec: float = 60.0,
+    db_path: str = "C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3",
+):
     from textual_gui import run_monitor as _run
-    _run(interval_sec=interval_sec)
+    _run(
+        monitor_interval_sec=monitor_interval_sec,
+        log_interval_sec=log_interval_sec,
+        db_path=db_path,
+    )

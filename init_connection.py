@@ -1,27 +1,44 @@
 import pyvisa
 
 class logger:
-    def __init__(self):
+    def __init__(self, open_330bb: bool = True, open_330sp: bool = True, open_336: bool = True):
         self.rm = pyvisa.ResourceManager()
-        self.LS330BB = self.rm.open_resource("GPIB2::13::INSTR")
-        self.LS330SP = self.rm.open_resource("GPIB2::12::INSTR")
+        if open_330bb:
+            self.LS330BB = self.rm.open_resource("GPIB2::13::INSTR")
+        if open_330sp:
+            self.LS330SP = self.rm.open_resource("GPIB2::12::INSTR")
 
-    ## Now we configure the 336 specially, because it doesn't work out of the box
-
-        self.LS336 = self.rm.open_resource("ASRL4::INSTR")
-        self.LS336.baud_rate = 57600
-        self.LS336.data_bits = 7
-        self.LS336.stop_bits = pyvisa.constants.StopBits.one
-        self.LS336.parity = pyvisa.constants.Parity.odd
-        self.LS336.flow_control = pyvisa.constants.ControlFlow.none
-        self.LS336.read_termination = '\r\n'
+        # Now we configure the 336 specially, because it doesn't work out of the box
+        if open_336:
+            self.LS336 = self.rm.open_resource("ASRL4::INSTR")
+            self.LS336.baud_rate = 57600
+            self.LS336.data_bits = 7
+            self.LS336.stop_bits = pyvisa.constants.StopBits.one
+            self.LS336.parity = pyvisa.constants.Parity.odd
+            self.LS336.flow_control = pyvisa.constants.ControlFlow.none
+            self.LS336.read_termination = '\r\n'
     
     # Graceful shutdown method:
     def close(self):
-        self.LS330BB.close()
-        self.LS330SP.close()
-        self.LS336.close()
-        self.rm.close()
+        try:
+            if hasattr(self, 'LS330BB'):
+                self.LS330BB.close()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'LS330SP'):
+                self.LS330SP.close()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'LS336'):
+                self.LS336.close()
+        except Exception:
+            pass
+        try:
+            self.rm.close()
+        except Exception:
+            pass
 
     def __del__(self):
         self.close()
