@@ -26,16 +26,6 @@ class logger:
     def __del__(self):
         self.close()
 
-    # Confirm connection to instruments:
-    def test_instruments(self):
-        try:
-            self.LS330BB.query("*IDN?")
-            self.LS330SP.query("*IDN?")
-            self.LS336.query("*IDN?")
-            print("All instruments connected successfully.")
-        except Exception as e:
-            print(f"Error connecting to instruments: {e}")
-
     ## Polling methods
     # For the 330s, we will poll setpoint and TC temperature
 
@@ -71,3 +61,21 @@ class logger:
         except Exception as e:
             print(f"Error polling LS336: {e}")
             return None, None
+
+    # Confirm connection to instruments:
+    def test_instruments(self):
+        try:
+            self.LS330BB.query("*IDN?")
+            self.LS330SP.query("*IDN?")
+            self.LS336.query("*IDN?")
+            print("All instruments connected successfully.")
+
+            # Poll and print from each instrument:
+            for i, poll_func in enumerate([self.poll_330BB, self.poll_330SP, self.poll_336]):
+                result = poll_func()
+                if result:
+                    print(f"Instrument {i+1} - Setpoint: {result[0]}, Temperature: {result[1]}")
+                else:
+                    print(f"Instrument {i+1} - Failed to retrieve data.")
+        except Exception as e:
+            print(f"Error connecting to instruments: {e}")
