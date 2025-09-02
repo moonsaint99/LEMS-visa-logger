@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import asyncio
 from datetime import datetime, timedelta
 
 import init_connection
@@ -13,14 +14,46 @@ def run_monitor(
     db_path: str = "C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3",
 ):
     try:
-        from textual.app import App, ComposeResult
-        from textual.widgets import Header, Footer, DataTable, Static, TextLog, Checkbox, Button
+        from textual.app import App
+        from textual.widgets import Header, Footer, DataTable, Static, Checkbox, Button
+        # TextLog fallback compatibility across Textual versions
+        try:
+            from textual.widgets import TextLog  # type: ignore
+        except Exception:
+            try:
+                from textual.widgets import Log as _Log  # type: ignore
+
+                class TextLog(_Log):  # type: ignore
+                    def write_line(self, text: str) -> None:  # shim API
+                        self.write(text)
+
+            except Exception:
+                # Minimal shim using Static
+                from textual.widgets import Static as _Static  # type: ignore
+
+                class TextLog(_Static):  # type: ignore
+                    def __init__(self, *args, **kwargs):
+                        self._lines: list[str] = []
+                        title = kwargs.pop("border_title", None)
+                        super().__init__("", *args, **kwargs)
+                        if title is not None:
+                            try:
+                                self.border_title = title  # type: ignore[attr-defined]
+                            except Exception:
+                                pass
+
+                    def write_line(self, text: str) -> None:
+                        self._lines.append(text)
+                        try:
+                            self.update("\n".join(self._lines))
+                        except Exception:
+                            pass
+
         from textual.reactive import reactive
-        from textual import work
-    except Exception as exc:  # optional dependency
+    except ImportError as exc:  # optional dependency
         raise RuntimeError(
-            "The 'textual' package is required for the monitor UI.\n"
-            "Install with: pip install textual"
+            "Textual is installed but a required symbol was not found.\n"
+            "Please upgrade Textual: pip install 'textual>=0.30'"
         ) from exc
 
     class MonitorState:
@@ -86,7 +119,7 @@ def run_monitor(
             self.table: DataTable | None = None
             self.row_index: dict[tuple[str, str], int] = {}
             self.status: Static | None = None
-            self.log: TextLog | None = None
+            self.log_view: TextLog | None = None
             self._last_poll: datetime | None = None
             self._last_log: datetime | None = None
             self._orig_stdout = None
@@ -101,7 +134,7 @@ def run_monitor(
             self.btn_start: Button | None = None
             self._started = False
 
-        def compose(self) -> ComposeResult:
+        def compose(self):
             yield Header(show_clock=True)
             # Selection panel
             self.sel_text = Static("Select instruments to monitor, then press Start:")
@@ -120,16 +153,25 @@ def run_monitor(
             self.table = DataTable(zebra_stripes=True)
             self.table.add_columns("Source", "Channel", "Value", "Time (UTC)")
             yield self.table
-            self.log = TextLog(highlight=False, wrap=True)
-            self.log.border_title = "Logs"
-            yield self.log
+            try:
+                self.log_view = TextLog(highlight=False, wrap=True)
+            except TypeError:
+                try:
+                    self.log_view = TextLog(highlight=False)
+                except TypeError:
+                    self.log_view = TextLog()
+            try:
+                self.log_view.border_title = "Logs"  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            yield self.log_view
             yield Footer()
 
         def on_mount(self) -> None:
             # Replace stdout/stderr with a stream that writes to the TextLog
-            if self.log is not None:
+            if self.log_view is not None:
                 self._orig_stdout, self._orig_stderr = sys.stdout, sys.stderr
-                redirect = _StreamToTextLog(self, self.log)
+                redirect = _StreamToTextLog(self, self.log_view)
                 sys.stdout = redirect  # type: ignore
                 sys.stderr = redirect  # type: ignore
 
@@ -215,15 +257,11 @@ def run_monitor(
             if event.button.id == "start":
                 self._start()
 
-        @work(thread=True, exclusive=True)
-        def _do_poll(self):
-            return self.state.poll_latest()
-
         async def _tick(self) -> None:
             if not self.state:
                 return
             try:
-                result = await self._do_poll.wait()
+                result = await asyncio.to_thread(self.state.poll_latest)
             except Exception:
                 return
 
@@ -244,24 +282,22 @@ def run_monitor(
 
             self._last_poll = datetime.utcnow()
 
-        @work(thread=True, exclusive=True)
-        def _do_log(self):
-            if self._db is None or not self.state:
-                return False
-            try:
-                with self._db:
-                    for row in _poll_once(self.state.inst, sources=self.state.sources):
-                        _insert_sample(self._db, *row)
-                return True
-            except Exception as e:
-                print(f"SQLite log error: {e}")
-                return False
-
         async def _log_tick(self) -> None:
-            try:
-                ok = await self._do_log.wait()
-            except Exception:
+            ok = False
+            if self._db is None or not self.state:
                 ok = False
+            else:
+                try:
+                    def _log_once():
+                        with self._db:
+                            for row in _poll_once(self.state.inst, sources=self.state.sources):
+                                _insert_sample(self._db, *row)
+                        return True
+
+                    ok = await asyncio.to_thread(_log_once)
+                except Exception as e:
+                    print(f"SQLite log error: {e}")
+                    ok = False
             if ok:
                 self._last_log = datetime.utcnow()
 
@@ -271,7 +307,8 @@ def run_monitor(
                 sys.stdout = self._orig_stdout  # type: ignore
             if self._orig_stderr is not None:
                 sys.stderr = self._orig_stderr  # type: ignore
-            self.state.close()
+            if self.state:
+                self.state.close()
             try:
                 if self._db is not None:
                     self._db.close()
