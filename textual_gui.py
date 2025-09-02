@@ -86,8 +86,14 @@ def run_monitor(
             self._app = app
             self._log = log_widget
             self._buffer = ""
+            self.encoding = "utf-8"
 
-        def write(self, s: str):
+        def write(self, s):
+            try:
+                if not isinstance(s, str):
+                    s = str(s)
+            except Exception:
+                s = ""
             self._buffer += s
             while "\n" in self._buffer:
                 line, self._buffer = self._buffer.split("\n", 1)
@@ -102,6 +108,13 @@ def run_monitor(
                 text = f"[{ts}] {self._buffer}"
                 self._app.call_from_thread(self._log.write_line, text)
                 self._buffer = ""
+
+        def isatty(self):
+            return False
+
+        def writelines(self, lines):
+            for line in lines:
+                self.write(line)
 
     class MonitorApp(App):
         CSS = ""
@@ -178,7 +191,10 @@ def run_monitor(
                 sys.stderr = redirect  # type: ignore
 
             # Only update status ticker before start
-            self.set_interval(1.0, self._update_status)
+            try:
+                self.set_interval(1.0, self._update_status)
+            except Exception as e:
+                self._safe_log(f"Status interval error: {e}")
 
         def _start(self):
             if self._started:
@@ -197,7 +213,7 @@ def run_monitor(
             try:
                 self.state = MonitorState(bbb, bsp, b36, sources)
             except Exception as e:
-                print(f"Failed to open instruments: {e}")
+                self._safe_log(f"Failed to open instruments: {e}")
                 self.state = None
                 return
 
@@ -223,15 +239,21 @@ def run_monitor(
             # Open DB for periodic logging
             try:
                 self._db = _connect_db(self._db_path)
-                print(f"SQLite logging to {self._db_path}")
+                self._safe_log(f"SQLite logging to {self._db_path}")
             except Exception as e:
-                print(f"Failed to open SQLite DB: {e}")
+                self._safe_log(f"Failed to open SQLite DB: {e}")
 
             # Start a thread pool for background tasks
             self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="tui")
             # Start periodic polling (monitor) and logging using sync schedulers
-            self.set_interval(self.monitor_interval, self._tick_sched, pause=not self.polling)
-            self.set_interval(self.log_interval, self._log_tick_sched)
+            try:
+                self.set_interval(self.monitor_interval, self._tick_sched, pause=not self.polling)
+            except Exception as e:
+                self._safe_log(f"Monitor interval error: {e}")
+            try:
+                self.set_interval(self.log_interval, self._log_tick_sched)
+            except Exception as e:
+                self._safe_log(f"Log interval error: {e}")
             self._started = True
 
             # Hide selection controls
@@ -243,17 +265,20 @@ def run_monitor(
                     pass
 
         def _update_status(self) -> None:
-            if not self.status:
-                return
-            poll_str = "—"
-            log_str = "—"
-            if self._last_poll is not None:
-                d = datetime.utcnow() - self._last_poll
-                poll_str = f"{int(d.total_seconds())}s ago"
-            if self._last_log is not None:
-                d = datetime.utcnow() - self._last_log
-                log_str = f"{int(d.total_seconds())}s ago"
-            self.status.update(f"Last poll: {poll_str} | Last log: {log_str}")
+            try:
+                if not self.status:
+                    return
+                poll_str = "—"
+                log_str = "—"
+                if self._last_poll is not None:
+                    d = datetime.utcnow() - self._last_poll
+                    poll_str = f"{int(d.total_seconds())}s ago"
+                if self._last_log is not None:
+                    d = datetime.utcnow() - self._last_log
+                    log_str = f"{int(d.total_seconds())}s ago"
+                self.status.update(f"Last poll: {poll_str} | Last log: {log_str}")
+            except Exception as e:
+                self._safe_log(f"Status update error: {e}")
 
         def action_refresh_now(self) -> None:
             # If not started yet, treat as start
@@ -267,56 +292,79 @@ def run_monitor(
                 self._start()
 
         def _apply_poll_result(self, result: dict[tuple[str, str], tuple[str, float | None]]) -> None:
-            table = self.table
-            if not table:
-                return
-            for key, (ts, val) in result.items():
-                row = self.row_index.get(key)
-                if row is None:
-                    row = table.add_row(key[0], key[1], "—", "—")
-                    self.row_index[key] = row
-                value_str = (
-                    f"{val:.6g}" if isinstance(val, (int, float)) and val is not None else ("—" if val is None else str(val))
-                )
-                table.update_cell(row, 2, value_str)
-                table.update_cell(row, 3, ts)
-            self._last_poll = datetime.utcnow()
+            try:
+                table = self.table
+                if not table:
+                    return
+                for key, (ts, val) in result.items():
+                    row = self.row_index.get(key)
+                    if row is None:
+                        row = table.add_row(key[0], key[1], "—", "—")
+                        self.row_index[key] = row
+                    value_str = (
+                        f"{val:.6g}" if isinstance(val, (int, float)) and val is not None else ("—" if val is None else str(val))
+                    )
+                    table.update_cell(row, 2, value_str)
+                    table.update_cell(row, 3, ts)
+                self._last_poll = datetime.utcnow()
+            except Exception as e:
+                self._safe_log(f"Apply result error: {e}")
 
         def _tick_sched(self) -> None:
-            if not self.state or not self._executor:
-                return
-            fut = self._executor.submit(self.state.poll_latest)
-
-            def _done(f: concurrent.futures.Future):
-                try:
-                    res = f.result()
-                except Exception:
+            try:
+                if not self.state or not self._executor:
                     return
-                self.call_from_thread(self._apply_poll_result, res)
+                fut = self._executor.submit(self.state.poll_latest)
 
-            fut.add_done_callback(_done)
+                def _done(f: concurrent.futures.Future):
+                    try:
+                        res = f.result()
+                    except Exception as ex:
+                        self._safe_log(f"Poll error: {ex}")
+                        return
+                    self.call_from_thread(self._apply_poll_result, res)
+
+                fut.add_done_callback(_done)
+            except Exception as e:
+                self._safe_log(f"Tick schedule error: {e}")
 
         def _log_tick_sched(self) -> None:
-            if self._db is None or not self.state or not self._executor:
-                return
-            def _log_once():
-                try:
-                    with self._db:
-                        for row in _poll_once(self.state.inst, sources=self.state.sources):
-                            _insert_sample(self._db, *row)
-                    return True
-                except Exception as e:
-                    print(f"SQLite log error: {e}")
-                    return False
-            fut = self._executor.submit(_log_once)
-            def _done(f: concurrent.futures.Future):
-                try:
-                    ok = f.result()
-                except Exception:
-                    ok = False
-                if ok:
-                    self.call_from_thread(lambda: setattr(self, "_last_log", datetime.utcnow()))
-            fut.add_done_callback(_done)
+            try:
+                if self._db is None or not self.state or not self._executor:
+                    return
+
+                def _log_once():
+                    try:
+                        # Open a fresh connection per log tick to avoid cross-thread issues
+                        db = _connect_db(self._db_path)
+                        try:
+                            with db:
+                                for row in _poll_once(self.state.inst, sources=self.state.sources):
+                                    _insert_sample(db, *row)
+                        finally:
+                            try:
+                                db.close()
+                            except Exception:
+                                pass
+                        return True
+                    except Exception as e:
+                        self._safe_log(f"SQLite log error: {e}")
+                        return False
+
+                fut = self._executor.submit(_log_once)
+
+                def _done(f: concurrent.futures.Future):
+                    try:
+                        ok = f.result()
+                    except Exception as ex:
+                        self._safe_log(f"Log error: {ex}")
+                        ok = False
+                    if ok:
+                        self.call_from_thread(lambda: setattr(self, "_last_log", datetime.utcnow()))
+
+                fut.add_done_callback(_done)
+            except Exception as e:
+                self._safe_log(f"Log schedule error: {e}")
 
         def on_unmount(self) -> None:
             # Restore stdout/stderr
@@ -329,6 +377,24 @@ def run_monitor(
             try:
                 if self._db is not None:
                     self._db.close()
+            except Exception:
+                pass
+            # no executor to shut down here; it's GC'd with the app
+
+        def _safe_log(self, msg: str) -> None:
+            ts = datetime.utcnow().strftime("%H:%M:%S")
+            text = f"[{ts}] {msg}"
+            try:
+                # Try UI log first
+                if self.log_view is not None:
+                    self.call_from_thread(self.log_view.write_line, text)
+            except Exception:
+                pass
+            try:
+                # Also write to original stderr if available
+                if self._orig_stderr is not None:
+                    self._orig_stderr.write(text + "\n")
+                    self._orig_stderr.flush()
             except Exception:
                 pass
             try:
