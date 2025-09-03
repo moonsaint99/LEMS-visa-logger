@@ -255,6 +255,14 @@ def run_monitor(
             except Exception as e:
                 self._safe_log(f"Log interval error: {e}")
             self._started = True
+            # Kick an immediate first poll for instant feedback
+            try:
+                self._tick_sched()
+            except Exception as e:
+                self._safe_log(f"Initial poll error: {e}")
+            # Log selection
+            sel = ", ".join(sorted([s for s in sources])) or "(none)"
+            self._safe_log(f"Monitoring started. Poll={self.monitor_interval}s, Log={self.log_interval}s, Sources={sel}")
 
             # Hide selection controls
             for w in (self.sel_text, self.chk_330bb, self.chk_330sp, self.chk_336, self.btn_start):
@@ -322,7 +330,10 @@ def run_monitor(
                     except Exception as ex:
                         self._safe_log(f"Poll error: {ex}")
                         return
-                    self.call_from_thread(self._apply_poll_result, res)
+                    try:
+                        self.call_from_thread(self._apply_poll_result, res)
+                    except Exception as ex2:
+                        self._safe_log(f"UI update error: {ex2}")
 
                 fut.add_done_callback(_done)
             except Exception as e:
@@ -360,7 +371,10 @@ def run_monitor(
                         self._safe_log(f"Log error: {ex}")
                         ok = False
                     if ok:
-                        self.call_from_thread(lambda: setattr(self, "_last_log", datetime.utcnow()))
+                        try:
+                            self.call_from_thread(lambda: setattr(self, "_last_log", datetime.utcnow()))
+                        except Exception as ex2:
+                            self._safe_log(f"UI status update error: {ex2}")
 
                 fut.add_done_callback(_done)
             except Exception as e:
