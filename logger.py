@@ -108,9 +108,9 @@ def poll_and_log_sqlite(interval_sec: int = 15, db_path: str = "C:\\Users\\qris\
 
 
 if __name__ == "__main__":
-    # Launch the Textual monitoring UI by default when running this file.
-    from textual_gui import run_monitor
-    run_monitor(monitor_interval_sec=10.0, log_interval_sec=60.0)
+    # Launch the new minimal TUI by default
+    from tui import run_tui
+    run_tui(monitor_interval_sec=10.0, log_interval_sec=60.0)
 
 
 # Textual UI wrapper delegated to textual_gui.py for separation of concerns.
