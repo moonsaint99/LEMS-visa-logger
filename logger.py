@@ -1,3 +1,16 @@
+"""
+Core polling and SQLite logging utilities for Lake Shore instruments.
+
+This module exposes:
+- _connect_db: ensure SQLite schema and return a connection
+- _insert_sample: insert a single sample row
+- _poll_once: poll selected instruments and yield rows
+- poll_and_log_sqlite: simple headless logger loop
+
+logger.py also serves as the entry point when run directly; it launches the
+Textual TUI defined in tui.py.
+"""
+
 import os
 import signal
 import sqlite3
@@ -5,6 +18,12 @@ import time
 from datetime import datetime
 
 import init_connection
+
+
+# Default database path (override with LAKESHORE_DB env var if desired)
+DEFAULT_DB_PATH = os.environ.get(
+    "LAKESHORE_DB", "C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3"
+)
 
 
 STOP = False
@@ -41,7 +60,14 @@ def _connect_db(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def _insert_sample(db: sqlite3.Connection, ts: str, source: str, channel: str, value, extra: str | None = None):
+def _insert_sample(
+    db: sqlite3.Connection,
+    ts: str,
+    source: str,
+    channel: str,
+    value,
+    extra: str | None = None,
+):
     db.execute(
         "INSERT INTO samples (timestamp, source, channel, value, extra) VALUES (?, ?, ?, ?, ?)",
         (ts, source, channel, value, extra),
@@ -80,19 +106,37 @@ def _poll_once(inst: init_connection.logger, sources: set[str] | None = None):
         yield (ts, "LS336", "B.temperature[K]", b_temp, None)
 
 
-def poll_and_log_sqlite(interval_sec: int = 15, db_path: str = "C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3"):
+def poll_and_log_sqlite(
+    interval_sec: int = 15,
+    db_path: str = DEFAULT_DB_PATH,
+    sources: set[str] | None = None,
+):
+    """Headless polling loop that writes to SQLite.
+
+    - interval_sec: seconds between polls
+    - db_path: SQLite file path
+    - sources: optional set of sources to poll (e.g., {"LS330BB", "LS336"})
+    """
     signal.signal(signal.SIGINT, _handle_sigint)
 
-    print("Welcome!")
-    print(f"Starting SQLite logger every {interval_sec}s → {db_path}")
+    print("Starting SQLite logger")
+    print(f"  interval: {interval_sec}s")
+    print(f"  db: {db_path}")
+    if sources:
+        print(f"  sources: {', '.join(sorted(sources))}")
 
-    inst = init_connection.logger()
+    # Open only requested instruments to avoid conflicts with other software
+    open_330bb = (sources is None) or ("LS330BB" in sources)
+    open_330sp = (sources is None) or ("LS330SP" in sources)
+    open_336 = (sources is None) or ("LS336" in sources)
+
+    inst = init_connection.logger(open_330bb=open_330bb, open_330sp=open_330sp, open_336=open_336)
     db = _connect_db(db_path)
 
     try:
         while not STOP:
             with db:  # Transaction per polling cycle
-                for row in _poll_once(inst):
+                for row in _poll_once(inst, sources=sources):
                     _insert_sample(db, *row)
             time.sleep(interval_sec)
     finally:
@@ -110,18 +154,4 @@ def poll_and_log_sqlite(interval_sec: int = 15, db_path: str = "C:\\Users\\qris\
 if __name__ == "__main__":
     # Launch the new minimal TUI by default
     from tui import run_tui
-    run_tui(monitor_interval_sec=10.0, log_interval_sec=60.0)
-
-
-# Textual UI wrapper delegated to textual_gui.py for separation of concerns.
-def run_monitor(
-    monitor_interval_sec: float = 10.0,
-    log_interval_sec: float = 60.0,
-    db_path: str = "C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3",
-):
-    from textual_gui import run_monitor as _run
-    _run(
-        monitor_interval_sec=monitor_interval_sec,
-        log_interval_sec=log_interval_sec,
-        db_path=db_path,
-    )
+    run_tui(monitor_interval_sec=10.0, log_interval_sec=60.0, db_path=DEFAULT_DB_PATH)
