@@ -78,7 +78,9 @@ def run_monitor(
                     key = (source, channel)
                     results[key] = (ts, value)
             except Exception as e:
+                print(f"Poll exception: {e}")
                 results[("ERROR", "poll")] = (ts, None)
+            print(f"Polled {len(results)} metrics @ {ts}")
             return results
 
     class _StreamToTextLog:

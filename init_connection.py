@@ -6,11 +6,19 @@ class logger:
         if open_330bb:
             try:
                 self.LS330BB = self.rm.open_resource("GPIB2::13::INSTR")
+                try:
+                    self.LS330BB.timeout = 1000  # ms
+                except Exception:
+                    pass
             except Exception as e:
                 print(f"Error opening LS330BB: {e}")
         if open_330sp:
             try:
                 self.LS330SP = self.rm.open_resource("GPIB2::12::INSTR")
+                try:
+                    self.LS330SP.timeout = 1000  # ms
+                except Exception:
+                    pass
             except Exception as e:
                 print(f"Error opening LS330SP: {e}")
 
@@ -24,6 +32,10 @@ class logger:
                 self.LS336.parity = pyvisa.constants.Parity.odd
                 self.LS336.flow_control = pyvisa.constants.ControlFlow.none
                 self.LS336.read_termination = '\r\n'
+                try:
+                    self.LS336.timeout = 1000  # ms
+                except Exception:
+                    pass
             except Exception as e:
                 print(f"Error opening LS336: {e}")
     
