@@ -18,3 +18,12 @@ Start bits: 1
 Stop bits: 1
 Parity: odd
 Flow control: none
+
+Usage
+- Run `python logger.py` and select instruments when prompted.
+- The logger prints lines like `YYYY-MM-DDTHH:MM:SS.mmmmmm  LS330BB  temperature[K] = 300.12` while also writing to SQLite.
+- Press Ctrl+C to stop gracefully.
+
+Configuration
+- `LAKESHORE_DB`: SQLite file path. Default: `C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3`
+- `LAKESHORE_INTERVAL`: Poll interval in seconds (integer). Default: `10`
