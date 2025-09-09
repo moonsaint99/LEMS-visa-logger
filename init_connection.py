@@ -71,19 +71,21 @@ class logger:
         try:
             setpoint = self.LS330BB.query("SETP?")
             temperature = self.LS330BB.query("TEMP?")
-            return float(setpoint), float(temperature)
+            heater = self.LS330BB.query("HEAT?")
+            return float(setpoint), float(temperature), float(heater)
         except Exception as e:
             print(f"Error polling LS330BB: {e}")
-            return None, None
+            return None, None, None
 
     def poll_330SP(self):
         try:
             setpoint = self.LS330SP.query("SETP?")
             temperature = self.LS330SP.query("TEMP?")
-            return float(setpoint), float(temperature)
+            heater = self.LS330SP.query("HEAT?")
+            return float(setpoint), float(temperature), float(heater)
         except Exception as e:
             print(f"Error polling LS330SP: {e}")
-            return None, None
+            return None, None, None
 
     # For the 336, we will poll setpoints and temperatures for
     # channels 1 and 2 (corresponding to A and B on the physical

@@ -79,14 +79,16 @@ def _poll_once(inst: init_connection.logger, sources: set[str] | None = None):
     ts = datetime.now().astimezone().isoformat()
 
     if sources is None or "LS330BB" in sources:
-        bb_sp, bb_temp = inst.poll_330BB()
+        bb_sp, bb_temp, bb_heat = inst.poll_330BB()
         yield (ts, "LS330BB", "setpoint[K]", bb_sp, None)
         yield (ts, "LS330BB", "temperature[K]", bb_temp, None)
+        yield (ts, "LS330BB", "heater[%]", bb_heat, None)
 
     if sources is None or "LS330SP" in sources:
-        sp_sp, sp_temp = inst.poll_330SP()
+        sp_sp, sp_temp, sp_heat = inst.poll_330SP()
         yield (ts, "LS330SP", "setpoint[K]", sp_sp, None)
         yield (ts, "LS330SP", "temperature[K]", sp_temp, None)
+        yield (ts, "LS330SP", "heater[%]", sp_heat, None)
 
     if sources is None or "LS336" in sources:
         try:
