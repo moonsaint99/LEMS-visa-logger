@@ -75,7 +75,8 @@ def _insert_sample(
 
 
 def _poll_once(inst: init_connection.logger, sources: set[str] | None = None):
-    ts = datetime.utcnow().isoformat()
+    # Use local timezone-aware ISO timestamp (e.g., 2025-09-09T05:12:34-07:00)
+    ts = datetime.now().astimezone().isoformat()
 
     if sources is None or "LS330BB" in sources:
         bb_sp, bb_temp = inst.poll_330BB()
