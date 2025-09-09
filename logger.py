@@ -143,7 +143,7 @@ def poll_and_log_sqlite(
             with db:  # Transaction per polling cycle
                 for row in rows:
                     _insert_sample(db, *row)
-            # Print to console
+            # Print to console (human-readable local time)
             for ts, source, channel, value, _extra in rows:
                 v = value
                 if isinstance(v, (int, float)):
@@ -153,7 +153,12 @@ def poll_and_log_sqlite(
                         v_str = str(v)
                 else:
                     v_str = "NA"
-                print(f"{ts}  {source}  {channel} = {v_str}")
+                try:
+                    dt = datetime.fromisoformat(ts)
+                    human_ts = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    human_ts = ts
+                print(f"{human_ts}  {source}  {channel} = {v_str}")
             time.sleep(interval_sec)
     finally:
         try:

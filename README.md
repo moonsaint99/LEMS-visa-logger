@@ -21,7 +21,7 @@ Flow control: none
 
 Usage
 - Run `python logger.py` and select instruments when prompted.
- - The logger prints lines like `YYYY-MM-DDTHH:MM:SS-07:00  LS330BB  temperature[K] = 300.12` while also writing to SQLite. Timestamps are local time (Arizona) with offset.
+- The logger prints lines like `YYYY-MM-DD HH:MM:SS  LS330BB  temperature[K] = 300.12` while also writing to SQLite. Console timestamps are human-readable local time (Arizona).
 - Press Ctrl+C to stop gracefully.
 
 Configuration
