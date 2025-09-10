@@ -42,6 +42,17 @@ def _connect_db(db_path: str) -> sqlite3.Connection:
         os.makedirs(parent, exist_ok=True)
 
     conn = sqlite3.connect(db_path)
+    # Enable WAL mode and set reasonable defaults for durability/perf
+    try:
+        mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+        # Reduce fsyncs while keeping durability acceptable under WAL
+        conn.execute("PRAGMA synchronous=NORMAL")
+        # Back off a bit on lock contention to play nice with readers
+        conn.execute("PRAGMA busy_timeout=5000")  # ms
+        if mode and mode[0].lower() != "wal":
+            print(f"Warning: requested WAL mode, got {mode[0]!r}")
+    except Exception as e:
+        print(f"Warning: failed to enable WAL mode: {e}")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS samples (
