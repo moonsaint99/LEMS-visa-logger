@@ -41,14 +41,16 @@ def _connect_db(db_path: str) -> sqlite3.Connection:
     if parent:
         os.makedirs(parent, exist_ok=True)
 
-    conn = sqlite3.connect(db_path)
+    # Longer timeout helps when another writer holds the lock briefly
+    # Use IMMEDIATE to acquire the write lock up front on write transactions
+    conn = sqlite3.connect(db_path, timeout=30.0, isolation_level="IMMEDIATE")
     # Enable WAL mode and set reasonable defaults for durability/perf
     try:
         mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()
         # Reduce fsyncs while keeping durability acceptable under WAL
         conn.execute("PRAGMA synchronous=NORMAL")
         # Back off a bit on lock contention to play nice with readers
-        conn.execute("PRAGMA busy_timeout=5000")  # ms
+        conn.execute("PRAGMA busy_timeout=15000")  # ms
         if mode and mode[0].lower() != "wal":
             print(f"Warning: requested WAL mode, got {mode[0]!r}")
     except Exception as e:
@@ -150,10 +152,28 @@ def poll_and_log_sqlite(
     try:
         while not STOP:
             rows = list(_poll_once(inst, sources=sources))
-            # Write to DB
-            with db:  # Transaction per polling cycle
-                for row in rows:
-                    _insert_sample(db, *row)
+            # Write to DB with retry to handle concurrent writer
+            max_retries = 5
+            backoff = 0.2
+            for attempt in range(max_retries):
+                try:
+                    # Transaction per polling cycle; IMMEDIATE lock requested by connection
+                    with db:
+                        for row in rows:
+                            _insert_sample(db, *row)
+                    break
+                except sqlite3.OperationalError as e:
+                    msg = str(e).lower()
+                    if ("locked" in msg) or ("busy" in msg):
+                        if attempt == max_retries - 1:
+                            print("DB busy/locked after retries; skipping this cycle.")
+                            break
+                        sleep_s = backoff * (2 ** attempt)
+                        print(f"DB locked; retrying in {sleep_s:.2f}s...")
+                        time.sleep(sleep_s)
+                        continue
+                    else:
+                        raise
             # Print to console (human-readable local time)
             for ts, source, channel, value, _extra in rows:
                 v = value
