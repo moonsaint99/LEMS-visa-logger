@@ -27,6 +27,10 @@ DEFAULT_DB_PATH = os.environ.get(
 
 
 STOP = False
+BOLD = "\033[1m"
+RESET = "\033[0m"
+TEMP_LINE_STYLE = "\033[1;33m"
+SPINNER_FRAMES = "|/-\\"
 
 
 def _handle_sigint(signum, frame):
@@ -87,7 +91,11 @@ def _insert_sample(
     )
 
 
-def _poll_once(inst: init_connection.logger, sources: set[str] | None = None):
+def _poll_once(
+    inst: init_connection.logger,
+    sources: set[str] | None = None,
+    warnings: list[str] | None = None,
+):
     # Use local timezone-aware ISO timestamp (e.g., 2025-09-09T05:12:34-07:00)
     ts = datetime.now().astimezone().isoformat()
 
@@ -107,7 +115,10 @@ def _poll_once(inst: init_connection.logger, sources: set[str] | None = None):
         try:
             res_a, res_b = inst.poll_336()
         except Exception as e:
-            print(f"Error polling LS336: {e}")
+            if warnings is not None:
+                warnings.append(f"Error polling LS336: {e}")
+            else:
+                print(f"Error polling LS336: {e}")
             res_a = res_b = None
 
         a_sp = a_temp = b_sp = b_temp = None
@@ -120,6 +131,82 @@ def _poll_once(inst: init_connection.logger, sources: set[str] | None = None):
         yield (ts, "LS336", "A.temperature[K]", a_temp, None)
         yield (ts, "LS336", "B.setpoint[K]", b_sp, None)
         yield (ts, "LS336", "B.temperature[K]", b_temp, None)
+
+
+def _format_value(channel: str, value) -> str:
+    if isinstance(value, (int, float)):
+        try:
+            v_str = f"{value:.6g}"
+        except Exception:
+            v_str = str(value)
+    else:
+        v_str = "NA"
+
+    return v_str
+
+
+def _print_poll_block(
+    poll_index: int,
+    rows: list[tuple[str, str, str, object, str | None]],
+    warnings: list[str] | None = None,
+):
+    header_line = "=" * 60
+    print("\n" + header_line)
+
+    poll_ts = rows[0][0] if rows else datetime.now().astimezone().isoformat()
+    try:
+        dt = datetime.fromisoformat(poll_ts)
+        poll_label = dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+    except Exception:
+        poll_label = poll_ts
+
+    title = f" Poll #{poll_index} — {poll_label} "
+    print(title.center(len(header_line), "="))
+    print(header_line)
+
+    if warnings:
+        for warning in warnings:
+            print(f"{BOLD}! {warning}{RESET}")
+        print("-" * len(header_line))
+
+    if not rows:
+        print("(No readings returned this cycle)")
+        return
+
+    for ts, source, channel, value, _extra in rows:
+        try:
+            dt = datetime.fromisoformat(ts)
+            human_ts = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            human_ts = ts
+        value_str = _format_value(channel, value)
+        line = f"{human_ts}  {source:<7}  {channel:<18} = {value_str}"
+        if "temperature" in channel.lower():
+            line = f"{TEMP_LINE_STYLE}{line}{RESET}"
+        print(line)
+
+
+def _countdown(seconds: float):
+    if seconds <= 0:
+        return
+
+    end_time = time.monotonic() + seconds
+    frame_index = 0
+    max_width = 0
+
+    while not STOP:
+        remaining = end_time - time.monotonic()
+        if remaining <= 0:
+            break
+        spinner = SPINNER_FRAMES[frame_index % len(SPINNER_FRAMES)]
+        frame_index += 1
+        msg = f"Next poll in {remaining:4.1f}s {spinner}"
+        max_width = max(max_width, len(msg))
+        print("\r" + msg.ljust(max_width), end="", flush=True)
+        time.sleep(0.2)
+
+    print("\r" + " " * max_width + "\r", end="", flush=True)
+    print(flush=True)
 
 
 def poll_and_log_sqlite(
@@ -149,9 +236,14 @@ def poll_and_log_sqlite(
     inst = init_connection.logger(open_330bb=open_330bb, open_330sp=open_330sp, open_336=open_336)
     db = _connect_db(db_path)
 
+    poll_index = 0
+
     try:
         while not STOP:
-            rows = list(_poll_once(inst, sources=sources))
+            cycle_start = time.monotonic()
+            poll_index += 1
+            warnings: list[str] = []
+            rows = list(_poll_once(inst, sources=sources, warnings=warnings))
             # Write to DB with retry to handle concurrent writer
             max_retries = 5
             backoff = 0.2
@@ -166,31 +258,20 @@ def poll_and_log_sqlite(
                     msg = str(e).lower()
                     if ("locked" in msg) or ("busy" in msg):
                         if attempt == max_retries - 1:
-                            print("DB busy/locked after retries; skipping this cycle.")
+                            warnings.append("DB busy/locked after retries; skipping this cycle.")
                             break
                         sleep_s = backoff * (2 ** attempt)
-                        print(f"DB locked; retrying in {sleep_s:.2f}s...")
+                        warnings.append(f"DB locked; retrying in {sleep_s:.2f}s...")
                         time.sleep(sleep_s)
                         continue
                     else:
                         raise
-            # Print to console (human-readable local time)
-            for ts, source, channel, value, _extra in rows:
-                v = value
-                if isinstance(v, (int, float)):
-                    try:
-                        v_str = f"{v:.6g}"
-                    except Exception:
-                        v_str = str(v)
-                else:
-                    v_str = "NA"
-                try:
-                    dt = datetime.fromisoformat(ts)
-                    human_ts = dt.strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    human_ts = ts
-                print(f"{human_ts}  {source}  {channel} = {v_str}")
-            time.sleep(interval_sec)
+            _print_poll_block(poll_index, rows, warnings=warnings)
+
+            elapsed = time.monotonic() - cycle_start
+            remaining = max(0.0, float(interval_sec) - elapsed)
+            if not STOP:
+                _countdown(remaining)
     finally:
         try:
             db.close()
