@@ -1,4 +1,4 @@
-## [SeisLEMS TVAC User Guide](https://docs.google.com/document/d/11VcNu2kqhA4iFlFWNq3KHGkhs5XqE2UQXVg6zLiakf8/edit?usp=sharing)
+## Instruction document at the following link: [SeisLEMS TVAC User Guide](https://docs.google.com/document/d/11VcNu2kqhA4iFlFWNq3KHGkhs5XqE2UQXVg6zLiakf8/edit?usp=sharing)
 
 VISA logger for logging Lake Shore data for SeisLEMS TVAC testing.
 
@@ -22,9 +22,7 @@ Parity: odd
 Flow control: none
 
 Usage
-- Run `python logger.py` and select instruments when prompted.
-- The logger prints lines like `YYYY-MM-DD HH:MM:SS  LS330BB  temperature[K] = 300.12` while also writing to SQLite. Console timestamps are human-readable local time (Arizona).
-- Press Ctrl+C to stop gracefully.
+- See the instructions in the google doc linked at the top of this page.
 
 Configuration
 - `LAKESHORE_DB`: SQLite file path. Default: `C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3`
