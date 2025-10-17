@@ -1,4 +1,6 @@
-VISA logger for logging Lake Shore data for SeisLEMS TVAC testing
+## [SeisLEMS TVAC User Guide](https://docs.google.com/document/d/11VcNu2kqhA4iFlFWNq3KHGkhs5XqE2UQXVg6zLiakf8/edit?usp=sharing)
+
+VISA logger for logging Lake Shore data for SeisLEMS TVAC testing.
 
 On the Keysight computer, at the time this is being written, the three Lake Shore devices (two 330s and the 336) are available as:
 
