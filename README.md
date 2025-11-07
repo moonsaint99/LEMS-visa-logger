@@ -25,7 +25,8 @@ Usage
 - See the instructions in the google doc linked at the top of this page.
 - `start-logger.bat`: launches the real-time data logger with the default settings in this repo.
 - `export-logger-data.bat`: starts an interactive helper that exports samples from an existing logger SQLite database to CSV.
+- `create_dummy_database.py`: creates a small SQLite database populated with synthetic samples for testing the exporter.
 
 Configuration
-- `LAKESHORE_DB`: SQLite file path. Default: `C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3`
+- `LAKESHORE_DB`: SQLite file path. Default: `C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3` for the logger. The export helper will prompt for a file but still honors this environment variable if it is set.
 - `LAKESHORE_INTERVAL`: Poll interval in seconds (integer). Default: `10`

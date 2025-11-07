@@ -11,9 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional
 
-DEFAULT_DB_PATH = os.environ.get(
-    "LAKESHORE_DB", "C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3"
-)
+DEFAULT_DB_PATH = os.environ.get("LAKESHORE_DB")
 
 
 def _prompt(prompt: str) -> str:
@@ -66,6 +64,14 @@ def _resolve_db_path() -> Path:
     if DEFAULT_DB_PATH:
         print(f"Press Enter to use default: {DEFAULT_DB_PATH}")
     print("Type B to browse for a file using a dialog (if available).")
+
+    auto_selected = _maybe_launch_file_dialog(DEFAULT_DB_PATH)
+    if auto_selected:
+        path = Path(auto_selected)
+        if path.exists():
+            print(f"Using selected database: {path}")
+            return path
+        print(f"Selected file does not exist: {auto_selected}")
 
     while True:
         resp = _prompt("> ").strip()
