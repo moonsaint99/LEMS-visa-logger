@@ -7,6 +7,7 @@ import itertools
 import os
 import sqlite3
 import sys
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional
@@ -204,21 +205,75 @@ def _default_output_path(db_path: Path, start: Optional[str], end: Optional[str]
     return db_path.with_name(f"{stem}{suffix}.csv")
 
 
+def _format_value(value: Optional[object]) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.9g}"
+    return str(value)
+
+
+def _column_key(source: Optional[str], channel: Optional[str]) -> str:
+    source_part = source or ""
+    channel_part = channel or ""
+    if channel_part:
+        return f"{source_part}:{channel_part}"
+    return source_part or "(unknown)"
+
+
 def _write_csv(rows: Iterable[tuple], output_path: Path) -> int:
+    pivot: "OrderedDict[str, dict[str, tuple[object, Optional[str]]]]" = OrderedDict()
+    columns: set[str] = set()
+    columns_with_extra: set[str] = set()
     count = 0
+
+    for timestamp, source, channel, value, extra in rows:
+        column = _column_key(source, channel)
+        row_bucket = pivot.setdefault(timestamp, {})
+        row_bucket[column] = (value, extra)
+        columns.add(column)
+        if extra not in (None, ""):
+            columns_with_extra.add(column)
+        count += 1
+
+    if not pivot:
+        return 0
+
+    def sort_key(column_name: str) -> tuple[str, str]:
+        if ":" in column_name:
+            source_part, channel_part = column_name.split(":", 1)
+        else:
+            source_part, channel_part = column_name, ""
+        return (source_part, channel_part)
+
+    ordered_columns = sorted(columns, key=sort_key)
+
+    header = ["timestamp"]
+    for column in ordered_columns:
+        header.append(column)
+    for column in ordered_columns:
+        if column in columns_with_extra:
+            header.append(f"{column} (extra)")
+
     with output_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["timestamp", "source", "channel", "value", "extra"])
-        for row in rows:
-            timestamp, source, channel, value, extra = row
-            if value is None:
-                value_str = ""
-            elif isinstance(value, float):
-                value_str = f"{value:.9g}"
-            else:
-                value_str = str(value)
-            writer.writerow([timestamp, source, channel, value_str, extra or ""])
-            count += 1
+        writer.writerow(header)
+
+        for timestamp, row_bucket in pivot.items():
+            row_values: list[str] = [timestamp]
+
+            for column in ordered_columns:
+                value, _ = row_bucket.get(column, (None, None))
+                row_values.append(_format_value(value))
+
+            extras: list[str] = []
+            for column in ordered_columns:
+                if column in columns_with_extra:
+                    _, extra = row_bucket.get(column, (None, None))
+                    extras.append(_format_value(extra))
+
+            writer.writerow(row_values + extras)
+
     return count
 
 

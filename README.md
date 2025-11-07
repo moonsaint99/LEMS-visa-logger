@@ -24,7 +24,7 @@ Flow control: none
 Usage
 - See the instructions in the google doc linked at the top of this page.
 - `start-logger.bat`: launches the real-time data logger with the default settings in this repo.
-- `export-logger-data.bat`: starts an interactive helper that exports samples from an existing logger SQLite database to CSV.
+- `export-logger-data.bat`: starts an interactive helper that exports samples from an existing logger SQLite database to CSV, grouping each source/channel into its own column per timestamp for easier analysis.
 - `create_dummy_database.py`: creates a small SQLite database populated with synthetic samples for testing the exporter.
 
 Configuration
