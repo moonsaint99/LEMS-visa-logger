@@ -23,6 +23,8 @@ Flow control: none
 
 Usage
 - See the instructions in the google doc linked at the top of this page.
+- `start-logger.bat`: launches the real-time data logger with the default settings in this repo.
+- `export-logger-data.bat`: starts an interactive helper that exports samples from an existing logger SQLite database to CSV.
 
 Configuration
 - `LAKESHORE_DB`: SQLite file path. Default: `C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3`
