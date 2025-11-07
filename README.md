@@ -23,7 +23,3 @@ Flow control: none
 
 Usage
 - See the instructions in the google doc linked at the top of this page.
-
-Configuration
-- `LAKESHORE_DB`: SQLite file path. Default: `C:\\Users\\qris\\py_automations\\data_log\\lakeshore.sqlite3`
-- `LAKESHORE_INTERVAL`: Poll interval in seconds (integer). Default: `10`
